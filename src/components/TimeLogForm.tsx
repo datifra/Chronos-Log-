@@ -269,7 +269,7 @@ export default function TimeLogForm({
             </option>
             {stagesForProject.map(s => (
               <option key={s.id} value={s.id} disabled={s.isOpen === false}>
-                {s.name}{s.isOpen === false ? " 🔒 [Cerrada para modificar]" : ""}
+                {s.name}
               </option>
             ))}
           </select>

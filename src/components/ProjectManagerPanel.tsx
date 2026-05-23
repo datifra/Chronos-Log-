@@ -634,29 +634,7 @@ export default function ProjectManagerPanel({ token, currentUser, projects, onPr
               </div>
             </div>
 
-            {/* Display nested stages count and list tags */}
-            <div>
-              <span className="text-[10px] font-bold text-slate-450 block uppercase tracking-wider mb-1.5">
-                Etapas definidas ({proj.stages.length})
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {proj.stages.map(stg => (
-                  <span key={stg.id} className="text-[10px] bg-slate-105 border border-slate-200 font-mono text-slate-600 px-2 py-1 rounded-md flex items-center gap-1">
-                    {stg.isOpen === false ? (
-                      <Lock className="w-2.5 h-2.5 text-rose-600 inline-block shrink-0" />
-                    ) : (
-                      <Unlock className="w-2.5 h-2.5 text-emerald-600 inline-block shrink-0" />
-                    )}
-                    <span>{stg.name} ({stg.budgetedHours}h)</span>
-                    <span className={`text-[8px] uppercase font-bold px-1 py-0.25 rounded ${
-                      stg.isOpen === false ? "bg-rose-50 text-rose-600 border border-rose-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                    }`}>
-                      {stg.isOpen === false ? "Cerrada" : "Abierta"}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            </div>
+
           </div>
         ))}
 
