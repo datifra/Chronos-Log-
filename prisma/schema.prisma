@@ -41,6 +41,8 @@ model Stage {
   budgetedHours Float
   isOpen        Boolean   @default(true)
   timeLogs      TimeLog[]
+
+  @@index([projectId])
 }
 
 model TimeLog {
@@ -54,4 +56,9 @@ model TimeLog {
   date        String
   hours       Float
   description String
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([stageId])
+  @@index([date])
 }
