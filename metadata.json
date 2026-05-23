@@ -1,0 +1,6 @@
+{
+  "name": "Gestión de Proyectos - Timesheet",
+  "description": "Sistema de carga y consulta de horas trabajadas por proyecto y etapa, con calendario y tres niveles de acceso.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

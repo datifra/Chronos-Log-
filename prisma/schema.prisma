@@ -1,0 +1,57 @@
+// This is your Prisma schema file config for Prisma 7
+// The connection URL is read from prisma.config.ts
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  username     String    @unique
+  passwordHash String
+  name         String
+  role         String    // "superuser", "manager", "user"
+  email        String?
+  phone        String?
+  timeLogs     TimeLog[]
+}
+
+model Project {
+  id            Int       @id @default(autoincrement())
+  code          String    @unique
+  name          String
+  description   String
+  startDate     String
+  budgetedHours Float
+  budgetedCost  Float
+  stages        Stage[]
+  timeLogs      TimeLog[]
+}
+
+model Stage {
+  id            Int       @id @default(autoincrement())
+  projectId     Int
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  budgetedHours Float
+  isOpen        Boolean   @default(true)
+  timeLogs      TimeLog[]
+}
+
+model TimeLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  projectId   Int
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stageId     Int
+  stage       Stage    @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  date        String
+  hours       Float
+  description String
+}
