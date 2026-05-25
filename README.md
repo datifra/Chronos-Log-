@@ -38,6 +38,73 @@ Directivas importantes de seguridad implementadas:
 
 ---
 
+### Estructura y Funcionamiento de la Base de Datos (Modelo Físico de Datos)
+
+El esquema relacional está diseñado bajo una estricta normalización (Tercera Forma Normal - 3NF) para evitar redundancias y asegurar la integridad de los datos. Está compuesto por 4 tablas principales persistidas en PostgreSQL y administradas mediante Prisma ORM:
+
+#### 1. Tabla: `User` (Usuarios / Personal)
+Almacena el registro maestro de colaboradores, gestores y superusuarios.
+*   `id`: `Int` (Autoincremental, Llave Primaria).
+*   `username`: `String` (Único) - Identificador corto para inicio de sesión seguro.
+*   `passwordHash`: `String` - Hash criptográfico de la contraseña (`bcryptjs`).
+*   `name`: `String` - Nombre completo o descripción legible del usuario.
+*   `role`: `String` - Nivel de acceso jerárquico determinista: `"superuser"`, `"manager"` o `"user"`.
+*   `email`: `String?` (Opcional) - Dirección de correo electrónico.
+*   `phone`: `String?` (Opcional) - Teléfono de contacto.
+
+#### 2. Tabla: `Project` (Proyectos)
+Almacena la cabecera del proyecto con los parámetros restrictivos de horas presupuestadas y estimaciones analíticas de costo.
+*   `id`: `Int` (Autoincremental, Llave Primaria).
+*   `code`: `String` (Único) - Código unificado de proyecto (ej: `PEC-01`, `RAM-03`).
+*   `name`: `String` - Título descriptivo del proyecto.
+*   `description`: `String` - Detalle narrativo del alcance.
+*   `startDate`: `String` - Fecha oficial de inicio (con formato estandarizado `YYYY-MM-DD`).
+*   `budgetedHours`: `Float` - Fondo de horas total asignado al proyecto.
+*   `budgetedCost`: `Float` - Presupuesto financiero asignado.
+
+#### 3. Tabla: `Stage` (Etapas / Fases del Proyecto)
+Define las fases o tareas detalladas dentro de cada proyecto individual. Tiene una relación **Muchas a Una (N:1)** con la tabla `Project`.
+*   `id`: `Int` (Autoincremental, Llave Primaria).
+*   `projectId`: `Int` (Llave Foránea apuntando a `Project.id`).
+*   `name`: `String` - Nombre de la etapa (ej: "Diseño UX/UI", "QA & Deploy").
+*   `budgetedHours`: `Float` - Margen máximo de horas presupuestadas exclusivamente para esta etapa.
+*   `isOpen`: `Boolean` (Por defecto `true`) - Interruptor lógico para habilitar o deshabilitar la carga de horas de colaboradores sobre la fase.
+*   *Índices Optimistas:* Cuenta con un índice explícito sobre `[projectId]` (`@@index([projectId])`) para acelerar los joins instantáneos en la cascada de búsqueda.
+
+#### 4. Tabla: `TimeLog` (Imputaciones de Horas / Hojas de Tiempo)
+Registra de forma transaccional las horas cargadas por cada colaborador en el sistema. Relaciona usuarios con proyectos y etapas concurrentes.
+*   `id`: `Int` (Autoincremental, Llave Primaria).
+*   `userId`: `Int` (Llave Foránea apuntando a `User.id`).
+*   `projectId`: `Int` (Llave Foránea apuntando a `Project.id`).
+*   `stageId`: `Int` (Llave Foránea apuntando a `Stage.id`).
+*   `date`: `String` - Fecha del registro imputado (con formato `YYYY-MM-DD`).
+*   `hours`: `Float` - Cantidad de horas dedicadas.
+*   `description`: `String` - Comentarios de las tareas ejecutadas.
+
+---
+
+### Integridad Referencial y Reglas de Cascada (OnDelete Behavior)
+
+El modelo de base de datos define comportamientos automáticos estrictos frente a la eliminación de registros para salvaguardar la precisión histórica de las auditorías:
+*   **De Proyecto a Etapa (`Project` -> `Stage`)**: Configurado con `onDelete: Cascade`. Si un superusuario elimina un proyecto completo de la base de datos, todas las etapas registradas correspondientes a este proyecto se eliminarán en cascada de forma atómica en el motor relacional.
+*   **De Proyecto/Etapa a Imputación (`Project`/`Stage` -> `TimeLog`)**: Configurado con `onDelete: Cascade`. Facilita la limpieza completa del historial al remover proyectos y fases sin dejar registros huérfanos.
+*   **De Usuario a Imputación (`User` -> `TimeLog`)**: Configurado explícitamente con `onDelete: Restrict`. **No está permitido eliminar un usuario que tenga horas ya imputadas en el sistema.** Esto garantiza la inviolabilidad de los reportes históricos y las auditorías de horas del equipo. Para dar de baja a un colaborador sin alterar su historial de logs, sus credenciales o roles son inhabilitados en lugar de eliminarse físicamente de la base de datos.
+
+---
+
+### Estrategia de Indexación y Escalabilidad a Gran Escala (+100,000 Usuarios)
+
+Cuando el volumen de la base de datos crece exponencialmente, las búsquedas secuenciales (Full Table Scan) degradan velozmente el tiempo de respuesta del servidor backend. Para mitigar esto, hemos implementado una estrategia de índices en el esquema de Prisma:
+
+1.  **Índices sobre Llaves Foráneas Planas:**
+    *   `TimeLog(userId)`, `TimeLog(projectId)` y `TimeLog(stageId)` cuentan con índices independientes de tipo B-Tree (`@@index`). Esto acelera de forma dramática las consultas filtradas utilizadas en los tableros del colaborador (ej. *"Dame todas mis horas este mes"*) y los reportes analíticos del gerente de proyecto (*"Ver desvíos del proyecto X"*).
+2.  **Índices de Criterio Temporal:**
+    *   `TimeLog(date)` se encuentra indexada debido a que el renderizado de calendarios y gráficos semanales/mensuales requiere realizar filtros y agrupamientos (`GROUP BY` / `WHERE date BETWEEN ...`) constantemente. Un índice B-Tree reduce la complejidad de búsqueda temporal de un orden lineal $\mathcal{O}(N)$ a un orden logarítmico $\mathcal{O}(\log N)$.
+3.  **Comportamiento a 100.000 Usuarios:**
+    *   Una base de datos de 100,000 colaboradores activos genera decenas de millones de filas en la tabla `TimeLog`. Al contar con índices B-Tree específicos, las lecturas asociadas a cualquier Dashboard individual de usuario o reportes de gerentes tardarán unos pocos milisegundos en resolverse en lugar de provocar bloqueos en las conexiones del pool de PostgreSQL.
+
+---
+
 ### Estructura Clave del Repositorio
 
 La jerarquía del repositorio se organiza de la siguiente manera:

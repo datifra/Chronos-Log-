@@ -53,8 +53,9 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
   const totalSystemHoursLogged = timelogs.reduce((sum, log) => sum + log.hours, 0);
   const totalSystemHoursEstimated = projects.reduce((sum, p) => sum + p.budgetedHours, 0);
 
-  // Find projects that have exceeded their total estimated budget
+  // Find projects that have exceeded their total estimated budget (excluding operational projects with 0 budget)
   const exceededProjectsCount = projects.filter(p => {
+    if (p.budgetedHours === 0) return false;
     const logged = timelogs.filter(log => log.projectId === p.id).reduce((sum, log) => sum + log.hours, 0);
     return logged > p.budgetedHours;
   }).length;
@@ -136,8 +137,9 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
       const summaryRows = filteredProjects.map(project => {
         const projectLogs = timelogs.filter(log => log.projectId === project.id);
         const loggedHours = projectLogs.reduce((sum, log) => sum + log.hours, 0);
-        const budgetedHours = project.budgetedHours || 1;
-        const deviationPercent = Math.round((loggedHours / budgetedHours) * 100);
+        const isOperational = project.budgetedHours === 0;
+        const budgetedHours = isOperational ? 1 : project.budgetedHours;
+        const deviationPercent = isOperational ? "N/A" : `${Math.round((loggedHours / budgetedHours) * 100)}%`;
         
         // Find list of active names
         const names = Array.from(new Set(projectLogs.map(l => l.userName || "Colaborador")));
@@ -146,9 +148,9 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
         return [
           project.code || `ID: ${project.id}`,
           project.name,
-          `${project.budgetedHours}h`,
+          isOperational ? "Operativo (0h)" : `${project.budgetedHours}h`,
           `${loggedHours.toFixed(1)}h`,
-          `${deviationPercent}%`,
+          deviationPercent,
           namesText.length > 30 ? namesText.substring(0, 30) + "..." : namesText
         ];
       });
@@ -202,8 +204,9 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
         // Calculate progress stats for this specific project
         const pLogs = timelogs.filter(log => log.projectId === project.id);
         const pLoggedSum = pLogs.reduce((sum, log) => sum + log.hours, 0);
-        const pBudgeted = project.budgetedHours || 1;
-        const progressPct = Math.round((pLoggedSum / pBudgeted) * 100);
+        const isOperational = project.budgetedHours === 0;
+        const pBudgeted = isOperational ? 1 : project.budgetedHours;
+        const progressPct = isOperational ? 0 : Math.round((pLoggedSum / pBudgeted) * 100);
 
         // Overview metrics of selected project
         doc.setFillColor(255, 255, 255);
@@ -213,12 +216,19 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
         doc.setFont("Helvetica", "bold");
         doc.setFontSize(8);
         doc.setTextColor(71, 85, 105);
-        doc.text(`Consumo del Presupuesto del Proyecto:`, 18, 42);
-
-        doc.setFontSize(10);
-        const progressColor = pLoggedSum > pBudgeted ? [185, 28, 28] : [67, 56, 202]; // Red-700 or Indigo-700
-        doc.setTextColor(progressColor[0], progressColor[1], progressColor[2]);
-        doc.text(`${pLoggedSum.toFixed(2)}h de ${project.budgetedHours}h estimadas (${progressPct}% consumido)`, 18, 47);
+        
+        if (isOperational) {
+          doc.text(`Tipo de Proyecto:`, 18, 41);
+          doc.setFontSize(10);
+          doc.setTextColor(79, 70, 229); // Indigo
+          doc.text(`PROYECTO OPERATIVO — Carga horaria libre (Total cargado: ${pLoggedSum.toFixed(2)}h)`, 18, 47);
+        } else {
+          doc.text(`Consumo del Presupuesto del Proyecto:`, 18, 41);
+          doc.setFontSize(10);
+          const progressColor = pLoggedSum > pBudgeted ? [185, 28, 28] : [67, 56, 202]; // Red-700 or Indigo-700
+          doc.setTextColor(progressColor[0], progressColor[1], progressColor[2]);
+          doc.text(`${pLoggedSum.toFixed(2)}h de ${project.budgetedHours}h estimadas (${progressPct}% consumido)`, 18, 47);
+        }
 
         // Project overall collaborator list
         const collaboratorsTotal: Record<string, number> = {};
@@ -267,19 +277,24 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
         const stageRows = project.stages.map((stg) => {
           const logsForStg = pLogs.filter(l => l.stageId === stg.id);
           const loggedForStg = logsForStg.reduce((sum, l) => sum + l.hours, 0);
-          const stgBudgeted = stg.budgetedHours || 1;
-          const pct = Math.round((loggedForStg / stgBudgeted) * 100);
+          const isStgOperational = isOperational || stg.budgetedHours === 0;
+          const stgBudgeted = isStgOperational ? 1 : stg.budgetedHours;
+          const pct = isStgOperational ? "N/A" : `${Math.round((loggedForStg / stgBudgeted) * 100)}%`;
           
           let alertLabel = "ÓPTIMO";
-          if (loggedForStg === 0) alertLabel = "SIN INICIAR";
-          else if (loggedForStg > stgBudgeted) alertLabel = `DESVIADO (+${(loggedForStg - stg.budgetedHours).toFixed(1)}h)`;
-          else if (loggedForStg === stgBudgeted) alertLabel = "COMPLETADO";
+          if (isStgOperational) {
+            alertLabel = loggedForStg > 0 ? "ACTIVO" : "SIN INICIAR";
+          } else {
+            if (loggedForStg === 0) alertLabel = "SIN INICIAR";
+            else if (loggedForStg > stgBudgeted) alertLabel = `DESVIADO (+${(loggedForStg - stg.budgetedHours).toFixed(1)}h)`;
+            else if (loggedForStg === stgBudgeted) alertLabel = "COMPLETADO";
+          }
 
           return [
             stg.name,
-            `${stg.budgetedHours}h`,
+            isStgOperational ? "N/A" : `${stg.budgetedHours}h`,
             `${loggedForStg.toFixed(1)}h`,
-            `${pct}%`,
+            pct,
             alertLabel
           ];
         });
@@ -349,17 +364,18 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
       filteredProjects.forEach(project => {
         const projectLogs = timelogs.filter(log => log.projectId === project.id);
         const loggedHours = projectLogs.reduce((sum, log) => sum + log.hours, 0);
-        const budgetedHours = project.budgetedHours || 1;
-        const deviationPercentActual = Math.round((loggedHours / budgetedHours) * 100);
+        const isOperational = project.budgetedHours === 0;
+        const budgetedHours = isOperational ? 1 : project.budgetedHours;
+        const deviationPercentActual = isOperational ? "N/A" : `${Math.round((loggedHours / budgetedHours) * 100)}%`;
         const names = Array.from(new Set(projectLogs.map(l => l.userName || "Colaborador")));
         const namesText = names.length > 0 ? names.join(", ") : "Sin cargas";
 
         metaRows.push([
           project.code || `ID: ${project.id}`,
           project.name,
-          project.budgetedHours.toString(),
+          isOperational ? "Operativo (0h)" : project.budgetedHours.toString(),
           Number(loggedHours.toFixed(1)).toString() + "h",
-          `${deviationPercentActual}%`,
+          deviationPercentActual,
           namesText
         ]);
       });
@@ -377,17 +393,23 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
 
       filteredProjects.forEach(project => {
         const pLogs = timelogs.filter(log => log.projectId === project.id);
+        const isOperational = project.budgetedHours === 0;
         
         project.stages.forEach((stg, sIdx) => {
           const logsForStg = pLogs.filter(l => l.stageId === stg.id);
           const loggedForStg = logsForStg.reduce((sum, l) => sum + l.hours, 0);
-          const stgBudgeted = stg.budgetedHours || 1;
-          const pct = Math.round((loggedForStg / stgBudgeted) * 100);
+          const isStgOperational = isOperational || stg.budgetedHours === 0;
+          const stgBudgeted = isStgOperational ? 1 : stg.budgetedHours;
+          const pct = isStgOperational ? "N/A" : `${Math.round((loggedForStg / stgBudgeted) * 100)}%`;
           
           let alertLabel = "ÓPTIMO";
-          if (loggedForStg === 0) alertLabel = "SIN INICIAR";
-          else if (loggedForStg > stgBudgeted) alertLabel = `DESVIADO (+${(loggedForStg - stg.budgetedHours).toFixed(1)}h)`;
-          else if (loggedForStg === stgBudgeted) alertLabel = "COMPLETADO";
+          if (isStgOperational) {
+            alertLabel = loggedForStg > 0 ? "ACTIVO" : "SIN INICIAR";
+          } else {
+            if (loggedForStg === 0) alertLabel = "SIN INICIAR";
+            else if (loggedForStg > stgBudgeted) alertLabel = `DESVIADO (+${(loggedForStg - stg.budgetedHours).toFixed(1)}h)`;
+            else if (loggedForStg === stgBudgeted) alertLabel = "COMPLETADO";
+          }
 
           const stageUsers = Array.from(new Set(logsForStg.map(l => l.userName || "Colaborador")));
           const stageUsersText = stageUsers.length > 0 ? stageUsers.join(", ") : "Sin cargas";
@@ -397,9 +419,9 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
             project.name,
             `Etapa ${sIdx + 1}`,
             stg.name,
-            stg.budgetedHours.toString(),
+            isStgOperational ? "N/A" : stg.budgetedHours.toString(),
             Number(loggedForStg.toFixed(1)).toString() + "h",
-            `${pct}%`,
+            pct,
             alertLabel,
             stageUsersText
           ]);
@@ -516,9 +538,10 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
         {filteredProjects.map(project => {
           const projectLogs = timelogs.filter(log => log.projectId === project.id);
           const totalLoggedHours = projectLogs.reduce((sum, log) => sum + log.hours, 0);
-          const budgetedHours = project.budgetedHours || 1;
-          const progressPercent = Math.min(100, Math.round((totalLoggedHours / budgetedHours) * 100));
-          const isOverBudget = totalLoggedHours > budgetedHours;
+          const isOperational = project.budgetedHours === 0;
+          const budgetedHours = isOperational ? 1 : project.budgetedHours;
+          const progressPercent = isOperational ? 0 : Math.min(100, Math.round((totalLoggedHours / budgetedHours) * 100));
+          const isOverBudget = !isOperational && totalLoggedHours > budgetedHours;
           const isExpanded = !!expandedProjects[project.id];
 
           // Overall user breakdown for the whole project
@@ -568,8 +591,13 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
                     <h3 className="font-sans font-extrabold text-sm text-slate-800 uppercase tracking-tight">
                       {project.name}
                     </h3>
+                    {isOperational && (
+                      <span className="text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                        Operativo
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[11px] text-slate-450 line-clamp-1">{project.description}</p>
+                  <p className="text-[11px] text-slate-455 line-clamp-1">{project.description}</p>
 
                   {/* Consolidado pequeño de personas que cargaron horas */}
                   {Object.keys(projectUserBreakdown).length > 0 ? (
@@ -585,7 +613,7 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
                             className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full px-2 py-0.5 text-[9px] font-medium text-slate-600 shadow-3xs"
                           >
                             <span className="truncate max-w-[80px] font-semibold">{user}</span>
-                            <span className="font-mono font-bold text-indigo-600 bg-indigo-50/60 px-1 rounded-full text-[8.5px]">{hr.toFixed(1)}h</span>
+                            <span className="font-mono font-bold text-indigo-650 bg-indigo-50/60 px-1 rounded-full text-[8.5px]">{hr.toFixed(1)}h</span>
                           </span>
                         ))}
                       </div>
@@ -599,32 +627,43 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
 
                 {/* Performance stats & progress review */}
                 <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
-                  <div className="text-right">
-                    <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider">Cargadas / Estimadas</span>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-mono font-bold ${isOverBudget ? 'text-amber-600' : 'text-slate-800'}`}>
-                        {totalLoggedHours.toFixed(2)}h
-                      </span>
-                      <span className="text-slate-300 text-xs font-mono">/</span>
-                      <span className="text-xs font-mono font-medium text-slate-500">
-                        {project.budgetedHours}h
+                  {isOperational ? (
+                    <div className="text-right">
+                      <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider">Total de horas cargadas</span>
+                      <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100 block mt-0.5">
+                        {totalLoggedHours.toFixed(2)} hrs
                       </span>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="text-right">
+                        <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider">Cargadas / Estimadas</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-mono font-bold ${isOverBudget ? 'text-amber-600' : 'text-slate-800'}`}>
+                            {totalLoggedHours.toFixed(2)}h
+                          </span>
+                          <span className="text-slate-300 text-xs font-mono">/</span>
+                          <span className="text-xs font-mono font-medium text-slate-500">
+                            {project.budgetedHours}h
+                          </span>
+                        </div>
+                      </div>
 
-                  {/* Visual progress bar radial or standard */}
-                  <div className="w-24 shrink-0">
-                    <div className="flex justify-between text-[9px] font-bold text-slate-400 mb-1">
-                      <span>Consumido</span>
-                      <span className={isOverBudget ? 'text-amber-600' : 'text-indigo-600'}>{progressPercent}%</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full transition-all duration-300 ${isOverBudget ? 'bg-amber-500' : 'bg-indigo-600'}`}
-                        style={{ width: `${progressPercent}%` }}
-                      ></div>
-                    </div>
-                  </div>
+                      {/* Visual progress bar radial or standard */}
+                      <div className="w-24 shrink-0">
+                        <div className="flex justify-between text-[9px] font-bold text-slate-400 mb-1">
+                          <span>Consumido</span>
+                          <span className={isOverBudget ? 'text-amber-600' : 'text-indigo-600'}>{progressPercent}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full transition-all duration-300 ${isOverBudget ? 'bg-amber-500' : 'bg-indigo-600'}`}
+                            style={{ width: `${progressPercent}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* Expand collapse action */}
                   <div className="text-slate-400">
@@ -649,19 +688,20 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
                   {/* Title of detail */}
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-900 bg-indigo-50 px-2 py-1 rounded border border-indigo-100/50">
-                      Desglose de Horas por Etapa ({stagesDetails.length} etapas)
+                      Desglose por Etapa ({stagesDetails.length} etapas)
                     </span>
                     <span className="text-[10.5px] font-medium text-slate-400">
-                      Calculado sobre registros de {projectLogs.length} timelogs
+                      Calculado sobre registros de {projectLogs.length} timelogs {isOperational ? "(Proyecto Operativo)" : ""}
                     </span>
                   </div>
 
                   {/* Stage Grid / Tables */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {stagesDetails.map((stage, sIdx) => {
-                      const stageEstimated = stage.budgetedHours || 1;
-                      const stageLoggedPercent = Math.round((stage.hoursLogged / stageEstimated) * 100);
-                      const isStageExceeded = stage.hoursLogged > stage.budgetedHours;
+                      const isStageOperational = isOperational || stage.budgetedHours === 0;
+                      const stageEstimated = isStageOperational ? 1 : stage.budgetedHours;
+                      const stageLoggedPercent = isStageOperational ? 0 : Math.round((stage.hoursLogged / stageEstimated) * 100);
+                      const isStageExceeded = !isStageOperational && stage.hoursLogged > stage.budgetedHours;
 
                       return (
                         <div 
@@ -676,25 +716,31 @@ export default function ProjectSummaryPanel({ projects, timelogs }: ProjectSumma
                               </h4>
                             </div>
                             <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${isStageExceeded ? 'bg-amber-100 text-amber-700' : stage.hoursLogged > 0 ? 'bg-indigo-50 text-indigo-750' : 'bg-slate-100 text-slate-400'}`}>
-                              {stage.hoursLogged.toFixed(1)} / {stage.budgetedHours}h
+                              {isStageOperational ? `${stage.hoursLogged.toFixed(1)}h` : `${stage.hoursLogged.toFixed(1)} / ${stage.budgetedHours}h`}
                             </span>
                           </div>
 
                           {/* Mini Progress Bar */}
-                          <div className="space-y-1">
-                            <div className="w-full bg-slate-200/60 rounded-full h-1.5">
-                              <div 
-                                className={`h-1.5 rounded-full transition-all duration-300 ${isStageExceeded ? 'bg-amber-500' : 'bg-indigo-500'}`}
-                                style={{ width: `${Math.min(100, stageLoggedPercent)}%` }}
-                              ></div>
+                          {!isStageOperational ? (
+                            <div className="space-y-1">
+                              <div className="w-full bg-slate-200/60 rounded-full h-1.5">
+                                <div 
+                                  className={`h-1.5 rounded-full transition-all duration-300 ${isStageExceeded ? 'bg-amber-500' : 'bg-indigo-500'}`}
+                                  style={{ width: `${Math.min(100, stageLoggedPercent)}%` }}
+                                ></div>
+                              </div>
+                              <div className="flex justify-between text-[8.5px] font-semibold text-slate-400">
+                                <span>Consumo etapa</span>
+                                <span className={isStageExceeded ? 'text-amber-600 font-bold' : 'text-slate-500'}>
+                                  {stageLoggedPercent}% {isStageExceeded && "⚠️"}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex justify-between text-[8.5px] font-semibold text-slate-400">
-                              <span>Consumo etapa</span>
-                              <span className={isStageExceeded ? 'text-amber-600 font-bold' : 'text-slate-500'}>
-                                {stageLoggedPercent}% {isStageExceeded && "⚠️"}
-                              </span>
+                          ) : (
+                            <div className="text-[9.5px] text-slate-400 bg-slate-100 px-2 py-1 rounded inline-block font-medium">
+                              Etapa con carga libre / Operativo
                             </div>
-                          </div>
+                          )}
 
                           {/* Users who logged hours detail */}
                           {Object.keys(stage.userBreakdown).length > 0 ? (
